@@ -96,78 +96,221 @@ if __name__ == "__main__":
             torch.save(save_dict, model_path)
             print(model_path)
 
+    # ~~~~ [REVISION] POD Spectrum plots for Cavity
+    if 1 == 0:
+        snap = "newcavity0.f00011-PODSPECTRUM.npz"
+        snap_pred = "newcavity_pred0.f00011-PODSPECTRUM.npz"
+        case_path = "/Volumes/Novus_SB_14TB/nek/nekrs_cases/examples_v23_gnn/cavity_rampup/Re_1600_p_7/one_shot"
+
+        data_1600_7 = np.load(f"{case_path}/snapshots_target/{snap}")
+        data_1600_1 = np.load(f"{case_path}/snapshots_coarse_7to1/{snap}")
+        data_1600_7_nekrs = np.load(f"{case_path}/snapshots_interp_1to7/{snap}")
+
+        # load models 
+        cavity_gnn = np.load(f"{case_path}/predictions/cavity_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re1600_3_7_132_128_3_2_6_True/{snap_pred}")
+        tgv_gnn = np.load(f"{case_path}/predictions/gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_3_7_132_128_3_2_6_True/{snap_pred}")
+        bfs_gnn = np.load(f"{case_path}/predictions/bfs_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re1600_3_7_132_128_3_2_6_True/{snap_pred}")
+        tgv_ft_gnn = np.load(f"{case_path}/predictions/finetune_tgv2cav_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re1600_3_7_132_128_3_2_6_True/{snap_pred}")
+        bfs_ft_gnn = np.load(f"{case_path}/predictions/finetune_bfs2cav_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re1600_3_7_132_128_3_2_6_True/{snap_pred}")
+
+        plt.rcParams.update({'font.size': 16})
+        lw = 2
+        fig, ax = plt.subplots(2,1,figsize=(8,8),sharex=True)
+
+        # Spectrum plot 
+        ax[0].plot(data_1600_7['spectrum'], color='black', lw=lw, label='Target (P=7)')
+        ax[0].plot(data_1600_1['spectrum'], color='blue', lw=lw, label='Coarse (P=1)')
+        ax[0].plot(data_1600_7_nekrs['spectrum'], color='gray', lw=lw, label='SE Interp. (P=7)')
+        ax[0].plot(cavity_gnn['spectrum'], color='lime', lw=lw, ls='--', label='GNN - Cavity')
+        #ax[0].plot(bfs_gnn['spectrum'], color='red', lw=lw, ls='--', label='GNN - BFS')
+        #ax[0].plot(bfs_ft_gnn['spectrum'], color='red', lw=lw, ls=':', label='GNN - BFS, FT')
+        ax[0].plot(tgv_gnn['spectrum'], color='red', lw=lw, ls='--', label='GNN - TGV')
+        ax[0].plot(tgv_ft_gnn['spectrum'], color='magenta', lw=lw, ls='--', label='GNN - TGV, FT')
+
+        ax[0].set_yscale('log')
+        ax[0].set_ylabel('$E_i$')
+        ax[0].set_xlabel('Mode Index, i')
+        #ax[0].set_title(snap)
+        ax[0].grid(which='minor', alpha=0.1)
+        ax[0].grid(which='major', alpha=0.4)
+        ax[0].legend(fancybox=False, framealpha=1, edgecolor='black', prop={'size': 12})
+
+        # Spectrum error plot 
+        err_nekrs = np.abs(data_1600_7_nekrs['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        err_cavity_gnn = np.abs(cavity_gnn['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        err_bfs_gnn = np.abs(bfs_gnn['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        err_bfs_ft_gnn = np.abs(bfs_ft_gnn['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        err_tgv_gnn = np.abs(tgv_gnn['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        err_tgv_ft_gnn = np.abs(tgv_ft_gnn['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        ax[1].plot(err_nekrs, color='gray', lw=lw)
+        ax[1].plot(err_cavity_gnn, color='lime', lw=lw, ls='--')
+        #ax[1].plot(err_bfs_gnn, color='red', lw=lw, ls='--')
+        #ax[1].plot(err_bfs_ft_gnn, color='red', lw=lw, ls=':')
+        ax[1].plot(err_tgv_gnn, color='red', lw=lw, ls='--')
+        ax[1].plot(err_tgv_ft_gnn, color='magenta', lw=lw, ls='--')
+
+        #ax[1].set_xscale('log')
+        #ax[1].set_yscale('log')
+        ax[1].set_ylim([0, 1])
+        ax[1].set_ylabel('Relative Error')
+        ax[1].set_xlabel('Mode Index, i')
+        ax[1].grid(which='minor', alpha=0.1)
+        ax[1].grid(which='major', alpha=0.4)
+        #ax[1].legend(fancybox=False, framealpha=1, edgecolor='black')
+
+        x_positions = np.arange(0, len(data_1600_7['spectrum']), 1)  # Adjust as needed
+        x_labels = [str(i) for i in x_positions]
+
+        # Spectrum plot
+        ax[0].set_xticks(x_positions)
+        ax[0].set_xticklabels(x_labels)
+
+        # Spectrum error plot
+        ax[1].set_xticks(x_positions)
+        ax[1].set_xticklabels(x_labels)
+
+        plt.show(block=False)
+
+    # ~~~~ [REVISION] POD Spectrum plots for BFS 
+    if 1 == 0:
+        snap = "newbfs0.f00011-PODSPECTRUM.npz"
+        snap_pred = "newbfs_pred0.f00011-PODSPECTRUM.npz"
+        case_path = "/Volumes/Novus_SB_14TB/nek/nekrs_cases/examples_v23_gnn/bfs_2_rampup/Re_1600_p_7/one_shot"
+
+        data_1600_7 = np.load(f"{case_path}/snapshots_target/{snap}")
+        data_1600_1 = np.load(f"{case_path}/snapshots_coarse_7to1/{snap}")
+        data_1600_7_nekrs = np.load(f"{case_path}/snapshots_interp_1to7/{snap}")
+
+        # load models 
+        resid = True
+        n_mp = 6 
+        data_1600_7_gnn_2_nei0 = np.load(f"{case_path}/predictions/bfs_sampled_gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_re1600_3_7_132_128_3_2_{n_mp}_True/{snap_pred}")
+        data_1600_7_gnn_2_nei26 = np.load(f"{case_path}/predictions/bfs_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re1600_3_7_132_128_3_2_{n_mp}_True/{snap_pred}")
+        
+        plt.rcParams.update({'font.size': 16})
+        lw = 2
+        fig, ax = plt.subplots(2,1,figsize=(8,8),sharex=True)
+
+        # Spectrum plot 
+        ax[0].plot(data_1600_7['spectrum'], color='black', lw=lw, label='Target (P=7)')
+        ax[0].plot(data_1600_1['spectrum'], color='blue', lw=lw, label='Coarse (P=1)')
+        ax[0].plot(data_1600_7_nekrs['spectrum'], color='gray', lw=lw, label='SE Interp. (P=7)')
+        ax[0].plot(data_1600_7_gnn_2_nei0['spectrum'], color='lime', lw=lw, ls='--', label='Model 2: Multi-Scale, 0 Neighbors (P=7)')
+        ax[0].plot(data_1600_7_gnn_2_nei26['spectrum'], color='red', lw=lw, ls='--', label='Model 2: Multi-Scale, 26 Neighbors (P=7)')
+
+        ax[0].set_yscale('log')
+        ax[0].set_ylabel('$E_i$')
+        ax[0].set_xlabel('Mode Index, i')
+        #ax[0].set_title(snap)
+        ax[0].grid(which='minor', alpha=0.1)
+        ax[0].grid(which='major', alpha=0.4)
+        ax[0].legend(fancybox=False, framealpha=1, edgecolor='black', prop={'size': 12})
+
+        # Spectrum error plot 
+        err_nekrs = np.abs(data_1600_7_nekrs['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        err_gnn_2_nei0 = np.abs(data_1600_7_gnn_2_nei0['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        err_gnn_2_nei26 = np.abs(data_1600_7_gnn_2_nei26['spectrum'] - data_1600_7['spectrum'])/data_1600_7['spectrum']
+        ax[1].plot(err_nekrs[:], color='gray', lw=lw, label='Spectral (P=7)')
+        ax[1].plot(err_gnn_2_nei0[:], color='lime', lw=lw, ls='--', label='Model 2, 0 Neighbors (P=7)')
+        ax[1].plot(err_gnn_2_nei26[:], color='red', lw=lw, ls='--', label='Model 2, 26 Neighbors (P=7)')
+
+        #ax[1].set_xscale('log')
+        #ax[1].set_yscale('log')
+        ax[1].set_ylim([0, 1])
+        ax[1].set_ylabel('Relative Error')
+        ax[1].set_xlabel('Mode Index, i')
+        ax[1].grid(which='minor', alpha=0.1)
+        ax[1].grid(which='major', alpha=0.4)
+        #ax[1].legend(fancybox=False, framealpha=1, edgecolor='black')
+
+        x_positions = np.arange(0, len(data_1600_7['spectrum']), 1)  # Adjust as needed
+        x_labels = [str(i) for i in x_positions]
+
+        # Spectrum plot
+        ax[0].set_xticks(x_positions)
+        ax[0].set_xticklabels(x_labels)
+
+        # Spectrum error plot
+        ax[1].set_xticks(x_positions)
+        ax[1].set_xticklabels(x_labels)
+
+        plt.show(block=False)
+
     # ~~~~ Spectrum plots 
     if 1 == 0:
         
-        # ~~~~ # # ~~~~ EFFECT OF INTERPOLATION 
-        # ~~~~ # # nekrs interp : 
-        # ~~~~ # t_snap = "18"
-        # ~~~~ # data_nrs_1to7 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_interp_1to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
-        # ~~~~ # data_knn_1to7 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_knninterp_1to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
-        # ~~~~ # data_tgt_7 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_target/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
-        # ~~~~ # data_crs_7to1 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_coarse_7to1/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
+        # ~~~~ [REVISION] EFFECT OF INTERPOLATION 
+        # nekrs interp : 
+        t_snap = "21"
+        data_nrs_1to7 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_interp_1to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
+        data_knn_1to7 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_knninterp_1to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
+        data_tgt_7 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_target/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
+        data_crs_7to1 = np.load(f"./outputs/Re_1600_poly_7_testset/one_shot/snapshots_coarse_7to1/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
 
-        # ~~~~ # # incr 
-        # ~~~~ # data_nrs_5to7 = np.load(f"./outputs/Re_1600_poly_7_testset/incr/snapshots_interp_full_5to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
-        # ~~~~ # data_knn_5to7 = np.load(f"./outputs/Re_1600_poly_7_testset/incr/snapshots_knninterp_5to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
-        # ~~~~ # data_crs_3to1 = np.load(f"./outputs/Re_1600_poly_7_testset/incr/snapshots_coarse_3to1/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
+        # incr 
+        data_nrs_5to7 = np.load(f"./outputs/Re_1600_poly_7_testset/incr/snapshots_interp_full_5to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
+        data_knn_5to7 = np.load(f"./outputs/Re_1600_poly_7_testset/incr/snapshots_knninterp_5to7/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
+        data_crs_3to1 = np.load(f"./outputs/Re_1600_poly_7_testset/incr/snapshots_coarse_3to1/regtgv_reg0.f000{t_snap}-SPECTRUM.npz")
 
-        # ~~~~ # # knn interp :
-        # ~~~~ # lw = 2
-        # ~~~~ # fig, ax = plt.subplots()
-        # ~~~~ # ax.plot(data_tgt_7['kspec'], data_tgt_7['spectrum'], color='black', lw=lw, label='Target')
-        # ~~~~ # ax.plot(data_crs_7to1['kspec'], data_crs_7to1['spectrum'], color='black', lw=lw, ls='--', label='P=1')
-        # ~~~~ # #ax.plot(data_crs_3to1['kspec'], data_crs_3to1['spectrum'], color='gray', lw=lw, ls='-.', label='P=1 (from 3)')
-        # ~~~~ # ax.plot(data_nrs_1to7['kspec'], data_nrs_1to7['spectrum'], color='blue', lw=lw, ls='--', label='NekRS')
-        # ~~~~ # #ax.plot(data_nrs_5to7['kspec'], data_nrs_5to7['spectrum'], color='cyan', lw=lw, ls='--', label='NekRS-incr')
-        # ~~~~ # #ax.plot(data_knn_1to7['kspec'], data_knn_1to7['spectrum'], color='red', lw=lw, ls='--', label='kNN')
-        # ~~~~ # #ax.plot(data_knn_5to7['kspec'], data_knn_5to7['spectrum'], color='magenta', lw=lw, ls='--', label='kNN-incr')
+        # knn interp :
+        lw = 2
+        fig, ax = plt.subplots()
+        ax.plot(data_tgt_7['kspec'], data_tgt_7['spectrum'], color='black', lw=lw, label='Target')
+        ax.plot(data_crs_7to1['kspec'], data_crs_7to1['spectrum'], color='blue', lw=lw, ls='-', label='Coarse (P=1)')
+        #ax.plot(data_crs_3to1['kspec'], data_crs_3to1['spectrum'], color='gray', lw=lw, ls='-.', label='P=1 (from 3)')
+        ax.plot(data_nrs_1to7['kspec'], data_nrs_1to7['spectrum'], color='gray', lw=lw, ls='-', label='SE Interp. (P=7)')
+        #ax.plot(data_nrs_5to7['kspec'], data_nrs_5to7['spectrum'], color='cyan', lw=lw, ls='--', label='NekRS-incr')
+        ax.plot(data_knn_1to7['kspec'], data_knn_1to7['spectrum'], color='magenta', lw=lw, ls='-', label='kNN Interp. (P=7)')
+        #ax.plot(data_knn_5to7['kspec'], data_knn_5to7['spectrum'], color='magenta', lw=lw, ls='--', label='kNN-incr')
 
-        # ~~~~ # # plot vlines: p = 1 
-        # ~~~~ # ax.vlines(data_crs_7to1['nyq_size'],  1e-9, 1e-1, lw=lw, color='gray', zorder=-1)
-        # ~~~~ # ax.vlines(data_tgt_7['nyq_size'],  1e-9, 1e-1, lw=lw, color='gray', zorder=-1)
+        # plot vlines: p = 1 
+        ax.vlines(data_crs_7to1['nyq_size'],  1e-9, 1e-1, lw=lw, color='blue', zorder=-1, alpha=0.3)
+        ax.vlines(data_tgt_7['nyq_size'],  1e-9, 1e-1, lw=lw, color='gray', zorder=-1, alpha=0.3)
 
-        # ~~~~ # plt.show(block=False)
-        # ~~~~ # ax.set_xscale('log')
-        # ~~~~ # ax.set_yscale('log')
-        # ~~~~ # ax.set_xlim([1,300])
-        # ~~~~ # ax.set_ylim([1e-9, 1e-1])
-        # ~~~~ # ax.set_ylabel('E(k)')
-        # ~~~~ # ax.set_xlabel('k')
-        # ~~~~ # ax.grid(which='minor', alpha=0.1)
-        # ~~~~ # ax.grid(which='major', alpha=0.4)
-        # ~~~~ # ax.legend(fancybox=False, framealpha=1, edgecolor='black')
-        # ~~~~ # plt.show(block=False)
-            
-        # ~~~~ # # EFFECT OF COARSENING -- FOR PAPER 
-        # ~~~~ # data_1600_7 = np.load("./outputs/snapshots_for_plotting/snapshots_target/Re_1600/regtgv_reg0.f00002-SPECTRUM.npz")
-        # ~~~~ # data_1600_1 = np.load("./outputs/snapshots_for_plotting/snapshots_coarse_7to1/Re_1600/regtgv_reg0.f00002-SPECTRUM.npz") 
-        # ~~~~ # data_3200_7 = np.load("./outputs/snapshots_for_plotting/snapshots_target/Re_3200/regtgv_reg0.f00002-SPECTRUM.npz")
-        # ~~~~ # data_3200_1 = np.load("./outputs/snapshots_for_plotting/snapshots_coarse_7to1/Re_3200/regtgv_reg0.f00002-SPECTRUM.npz") 
+        plt.show(block=False)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlim([1,300])
+        ax.set_ylim([1e-9, 1e-1])
+        ax.set_ylabel('E(k)')
+        ax.set_xlabel('k')
+        ax.grid(which='minor', alpha=0.1)
+        ax.grid(which='major', alpha=0.4)
+        ax.legend(fancybox=False, framealpha=1, edgecolor='black')
+        plt.show(block=False)
 
-        # ~~~~ # plt.rcParams.update({'font.size': 16})
-        # ~~~~ # lw = 2
-        # ~~~~ # fig, ax = plt.subplots(figsize=(6,6))
-        # ~~~~ # ax.plot(data_1600_7['kspec'], data_1600_7['spectrum'], color='black', lw=lw, label='P=7 (DNS)')
-        # ~~~~ # ax.plot(data_1600_1['kspec'], data_1600_1['spectrum'], color='blue', lw=lw, label='P=1 (Coarse)')
+        asdf
+        
+        # EFFECT OF COARSENING -- FOR PAPER 
+        data_1600_7 = np.load("./outputs/snapshots_for_plotting/snapshots_target/Re_1600/regtgv_reg0.f00002-SPECTRUM.npz")
+        data_1600_1 = np.load("./outputs/snapshots_for_plotting/snapshots_coarse_7to1/Re_1600/regtgv_reg0.f00002-SPECTRUM.npz") 
+        data_3200_7 = np.load("./outputs/snapshots_for_plotting/snapshots_target/Re_3200/regtgv_reg0.f00002-SPECTRUM.npz")
+        data_3200_1 = np.load("./outputs/snapshots_for_plotting/snapshots_coarse_7to1/Re_3200/regtgv_reg0.f00002-SPECTRUM.npz") 
 
-        # ~~~~ # ax.plot(data_3200_7['kspec'], data_3200_7['spectrum'], color='black', lw=lw, ls='--')
-        # ~~~~ # ax.plot(data_3200_1['kspec'], data_3200_1['spectrum'], color='blue', lw=lw, ls='--')
+        plt.rcParams.update({'font.size': 16})
+        lw = 2
+        fig, ax = plt.subplots(figsize=(6,6))
+        ax.plot(data_1600_7['kspec'], data_1600_7['spectrum'], color='black', lw=lw, label='P=7 (DNS)')
+        ax.plot(data_1600_1['kspec'], data_1600_1['spectrum'], color='blue', lw=lw, label='P=1 (Coarse)')
 
-        # ~~~~ # ax.vlines(data_1600_1['nyq_size'],  1e-9, 1e-1, lw=lw, color='blue', alpha=0.3, zorder=-1)
-        # ~~~~ # ax.vlines(data_1600_7['nyq_size'],  1e-9, 1e-1, lw=lw, color='black', alpha=0.3, zorder=-1)
+        ax.plot(data_3200_7['kspec'], data_3200_7['spectrum'], color='black', lw=lw, ls='--')
+        ax.plot(data_3200_1['kspec'], data_3200_1['spectrum'], color='blue', lw=lw, ls='--')
 
-        # ~~~~ # plt.show(block=False)
-        # ~~~~ # ax.set_xscale('log')
-        # ~~~~ # ax.set_yscale('log')
-        # ~~~~ # ax.set_xlim([1,300])
-        # ~~~~ # ax.set_ylim([1e-9, 1e-1])
-        # ~~~~ # ax.set_ylabel('E(k)')
-        # ~~~~ # ax.set_xlabel('k')
-        # ~~~~ # ax.grid(which='minor', alpha=0.1)
-        # ~~~~ # ax.grid(which='major', alpha=0.4)
-        # ~~~~ # #ax.legend(fancybox=False, framealpha=1, edgecolor='black')
-        # ~~~~ # plt.show(block=False)
+        ax.vlines(data_1600_1['nyq_size'],  1e-9, 1e-1, lw=lw, color='blue', alpha=0.3, zorder=-1)
+        ax.vlines(data_1600_7['nyq_size'],  1e-9, 1e-1, lw=lw, color='black', alpha=0.3, zorder=-1)
+
+        plt.show(block=False)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlim([1,300])
+        ax.set_ylim([1e-9, 1e-1])
+        ax.set_ylabel('E(k)')
+        ax.set_xlabel('k')
+        ax.grid(which='minor', alpha=0.1)
+        ax.grid(which='major', alpha=0.4)
+        #ax.legend(fancybox=False, framealpha=1, edgecolor='black')
+        plt.show(block=False)
+
 
         # PREDICTIONS -- FOR PAPER 
         snap = "regtgv_reg0.f00021-SPECTRUM.npz"
@@ -717,10 +860,6 @@ if __name__ == "__main__":
         ax.grid(False)
         plt.show(block=False)
 
-
-
-
-
         pass
 
 
@@ -728,8 +867,8 @@ if __name__ == "__main__":
     if 1 == 0:
         modelpath = "./saved_models/single_scale"
 
-        re="_re3200"
-        #re=""
+        #re="_re3200"
+        re=""
 
         # Model 1: 
         n_mp = 12
@@ -767,8 +906,7 @@ if __name__ == "__main__":
         plt.show(block=False)
 
 
-
-
+        
 
         pass
 
@@ -802,6 +940,12 @@ if __name__ == "__main__":
         d_color = 'lime'
         d_ls = '-'
 
+        # coarse-scale neighbors -- single-scale -- no resid 
+        d2 = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        d2_label = '1shot+0nei'
+        d2_color = 'green'
+        d2_ls = '-'
+
         # coarse-scale neighbors -- single-scale 
         e = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_6_c2f_multisnap_resid_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
         e_label = '1shot+6nei, Resid'
@@ -820,6 +964,7 @@ if __name__ == "__main__":
         g_color = 'orange'
         g_ls = '-.'
 
+
         plt.rcParams.update({'font.size': 18})
         
         fig, ax = plt.subplots(figsize=(8,6))
@@ -828,6 +973,7 @@ if __name__ == "__main__":
         #ax.plot(b['loss_hist_train'][0:], lw=2, color=b_color, label=b_label, ls=b_ls)
         #ax.plot(c['loss_hist_train'][0:], lw=2, color=c_color, label=c_label, ls=c_ls)
         ax.plot(d['loss_hist_train'][0:], lw=2, color=d_color, label=d_label, ls=d_ls)
+        ax.plot(d2['loss_hist_train'][0:], lw=2, color=d2_color, label=d2_label, ls=d2_ls)
         ax.plot(e['loss_hist_train'][0:], lw=2, color=e_color, label=e_label, ls=e_ls)
         ax.plot(f['loss_hist_train'][0:], lw=2, color=f_color, label=f_label, ls=f_ls)
         ax.plot(g['loss_hist_train'][0:], lw=2, color=g_color, label=g_label, ls=g_ls)
@@ -901,6 +1047,244 @@ if __name__ == "__main__":
         # ax2.tick_params(axis='y', labelcolor='blue')
         # ax2.grid(False)
 
+        plt.show(block=False)
+
+    # ~~~ [REVISION] Training loss -- training losses for BFS and cavity  
+    if 1 == 0:
+        n_mp = 6
+        fine_mp = 'True'
+        case = "bfs"
+
+        # coarse-scale neighbors -- single-scale 
+        a = torch.load(f'./saved_models/single_scale/bfs_sampled_gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_re1600_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        a_label = 'Re=1600, 0nei'
+        a_color = 'blue'
+        a_ls = '-'
+
+        b = torch.load(f'./saved_models/single_scale/bfs_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re1600_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        b_label = 'Re=1600, 26nei'
+        b_color = 'blue'
+        b_ls = '--'
+
+        c = torch.load(f'./saved_models/single_scale/bfs_sampled_gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        c_label = 'Re=3200, 0nei'
+        c_color = 'red'
+        c_ls = '-'
+
+        d = torch.load(f'./saved_models/single_scale/bfs_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        d_label = 'Re=3200, 26nei'
+        d_color = 'red'
+        d_ls = '--'
+
+        e = torch.load(f'./saved_models/single_scale/cavity_sampled_gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        e_label = 'Re=3200, 0nei (cavity)'
+        e_color = 'black'
+        e_ls = '-'
+
+        f = torch.load(f'./saved_models/single_scale/cavity_sampled_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        f_label = 'Re=3200, 26nei (cavity)'
+        f_color = 'black'
+        f_ls = '--'
+
+        plt.rcParams.update({'font.size': 18})
+        
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        ax.plot(a['loss_hist_train'][0:], lw=2, color=a_color, label=a_label, ls=a_ls)
+        ax.plot(b['loss_hist_train'][0:], lw=2, color=b_color, label=b_label, ls=b_ls)
+        ax.plot(c['loss_hist_train'][0:], lw=2, color=c_color, label=c_label, ls=c_ls)
+        ax.plot(d['loss_hist_train'][0:], lw=2, color=d_color, label=d_label, ls=d_ls)
+        ax.plot(e['loss_hist_train'][0:], lw=2, color=e_color, label=e_label, ls=e_ls)
+        ax.plot(f['loss_hist_train'][0:], lw=2, color=f_color, label=f_label, ls=f_ls)
+
+        #ax.set_yscale('log')
+        ax.legend(fontsize=12, frameon=True, edgecolor='black', framealpha=1, fancybox=False, bbox_transform=None)
+        ax.set_xlabel('Epochs')
+        ax.set_ylabel('Loss')
+        ax.set_title('n_mp_layers = %d' %(n_mp))
+        #ax.tick_params(axis='y', labelcolor='red')  # Set y-axis tick labels to red
+        #ax.set_ylim([1e-4, 1e0])
+        
+        plt.show(block=False)
+
+    # ~~~ [REVISION] Training Loss -- Effect of residual interpolation on TGV, at Re=1600 and 3200   
+    if 1 == 0:
+        n_mp = 6
+        fine_mp = 'True'
+
+        # coarse-scale neighbors -- single-scale 
+        a = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        a_label = 'Re=1600, 0nei, resid'
+        a_color = 'blue'
+        a_ls = '-'
+
+        b = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        b_label = 'Re=1600, 0nei, no resid'
+        b_color = 'blue'
+        b_ls = '--'
+
+        c = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        c_label = 'Re=1600, 26nei, resid'
+        c_color = 'black'
+        c_ls = '-'
+
+        d = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        d_label = 'Re=1600, 26nei, no resid'
+        d_color = 'black'
+        d_ls = '--'
+
+        plt.rcParams.update({'font.size': 18})
+        
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        #ax.plot(a['loss_hist_train'][0:], lw=2, color=a_color, label=a_label, ls=a_ls)
+        #ax.plot(b['loss_hist_train'][0:], lw=2, color=b_color, label=b_label, ls=b_ls)
+        ax.plot(c['loss_hist_test'][0:], lw=2, color=c_color, label=c_label, ls=c_ls)
+        ax.plot(d['loss_hist_test'][0:], lw=2, color=d_color, label=d_label, ls=d_ls)
+        #ax.plot(e['loss_hist_train'][0:], lw=2, color=e_color, label=e_label, ls=e_ls)
+        #ax.plot(f['loss_hist_train'][0:], lw=2, color=f_color, label=f_label, ls=f_ls)
+
+        ax.set_yscale('log')
+        ax.legend(fontsize=12, frameon=True, edgecolor='black', framealpha=1, fancybox=False, bbox_transform=None)
+        ax.set_xlabel('Epochs')
+        ax.set_ylabel('Loss')
+        ax.set_title('n_mp_layers = %d' %(n_mp))
+        #ax.tick_params(axis='y', labelcolor='red')  # Set y-axis tick labels to red
+        #ax.set_ylim([1e-4, 1e0])
+        
+        plt.show(block=False)
+
+
+    # ~~~ [REVISION] Training Loss -- Effect of number of message passing layers on TGV and BFS models  
+    if 1 == 1:
+        fine_mp = 'True'
+
+        # coarse-scale neighbors -- single-scale 
+        n_mp = 6
+        a = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        a_label = f'n_mp = {n_mp}'
+        a_color = 'black'
+        a_ls = '-'
+
+        n_mp = 4
+        b = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        b_label = f'n_mp = {n_mp}'
+        b_color = 'blue'
+        b_ls = '-'
+
+        n_mp = 2
+        c = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        c_label = f'n_mp = {n_mp}'
+        c_color = 'red'
+        c_ls = '-'
+
+        plt.rcParams.update({'font.size': 18})
+        
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        ax.plot(a['loss_hist_test'][0:], lw=2, color=a_color, label=a_label, ls=a_ls)
+        ax.plot(b['loss_hist_test'][0:], lw=2, color=b_color, label=b_label, ls=b_ls)
+        ax.plot(c['loss_hist_test'][0:], lw=2, color=c_color, label=c_label, ls=c_ls)
+
+        ax.set_yscale('log')
+        ax.legend(fontsize=12, frameon=True, edgecolor='black', framealpha=1, fancybox=False, bbox_transform=None)
+        ax.set_xlabel('Epochs')
+        ax.set_ylabel('Loss')
+        #ax.set_title('n_mp_layers = %d' %(n_mp))
+        #ax.tick_params(axis='y', labelcolor='red')  # Set y-axis tick labels to red
+        #ax.set_ylim([1e-4, 1e0])
+        
+        plt.show(block=False)
+
+
+    # ~~~ [REVISION] -- Training loss -- effect of incremental training on TGV model   
+    if 1 == 0:
+        n_mp = 6
+        fine_mp = 'True'
+
+        # coarse-scale neighbors -- single-scale 
+        a = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        a_label = 'Re=1600, 0nei, resid'
+        a_color = 'blue'
+        a_ls = '-'
+
+        b = torch.load(f'./saved_models/single_scale/gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_incr_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        b_label = 'Re=1600, 0nei, resid+incr'
+        b_color = 'blue'
+        b_ls = '--'
+
+        plt.rcParams.update({'font.size': 18})
+        
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        ax.plot(a['loss_hist_train'][0:], lw=2, color=a_color, label=a_label, ls=a_ls)
+        ax.plot(b['loss_hist_train'][0:], lw=2, color=b_color, label=b_label, ls=b_ls)
+
+        ax.set_yscale('log')
+        ax.legend(fontsize=12, frameon=True, edgecolor='black', framealpha=1, fancybox=False, bbox_transform=None)
+        ax.set_xlabel('Epochs')
+        ax.set_ylabel('Loss')
+        ax.set_title('n_mp_layers = %d' %(n_mp))
+        #ax.tick_params(axis='y', labelcolor='red')  # Set y-axis tick labels to red
+        #ax.set_ylim([1e-4, 1e0])
+        
+        plt.show(block=False)
+
+    # ~~~ [REVISION] -- Training loss -- effect of finetuning from either TGV/BFS to Cavity 
+    if 1 == 0:
+        n_mp = 6
+        fine_mp = 'True'
+
+        # coarse-scale neighbors -- single-scale 
+        a = torch.load(f'./saved_models/single_scale/finetune_bfs2cav_gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        a_label = 'Re=3200, 0nei, bfs2cav'
+        a_color = 'blue'
+        a_ls = '-'
+
+        b = torch.load(f'./saved_models/single_scale/finetune_bfs2cav_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        b_label = 'Re=3200, 26nei, bfs2cav'
+        b_color = 'blue'
+        b_ls = '--'
+
+        c = torch.load(f'./saved_models/single_scale/finetune_tgv2cav_gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        c_label = 'Re=3200, 0nei, tgv2cav'
+        c_color = 'red'
+        c_ls = '-'
+
+        d = torch.load(f'./saved_models/single_scale/finetune_tgv2cav_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        d_label = 'Re=3200, 26nei, tgv2cav'
+        d_color = 'red'
+        d_ls = '--'
+
+        e = torch.load(f'./saved_models/single_scale/cavity_gnn_lr_1em4_bs_4_nei_0_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        e_label = 'Re=3200, 0nei (cavity)'
+        e_color = 'black'
+        e_ls = '-'
+
+        f = torch.load(f'./saved_models/single_scale/cavity_gnn_lr_1em4_bs_4_nei_26_c2f_multisnap_resid_re3200_3_7_132_128_3_2_{n_mp}_{fine_mp}.tar')
+        f_label = 'Re=3200, 26nei (cavity)'
+        f_color = 'black'
+        f_ls = '--'
+
+        plt.rcParams.update({'font.size': 18})
+        
+        fig, ax = plt.subplots(figsize=(8,6))
+
+        ax.plot(a['loss_hist_train'][0:], lw=2, color=a_color, label=a_label, ls=a_ls)
+        ax.plot(b['loss_hist_train'][0:], lw=2, color=b_color, label=b_label, ls=b_ls)
+        ax.plot(c['loss_hist_train'][0:], lw=2, color=c_color, label=c_label, ls=c_ls)
+        ax.plot(d['loss_hist_train'][0:], lw=2, color=d_color, label=d_label, ls=d_ls)
+        ax.plot(e['loss_hist_train'][0:], lw=2, color=e_color, label=e_label, ls=e_ls)
+        ax.plot(f['loss_hist_train'][0:], lw=2, color=f_color, label=f_label, ls=f_ls)
+
+        ax.set_yscale('log')
+        ax.legend(fontsize=12, frameon=True, edgecolor='black', framealpha=1, fancybox=False, bbox_transform=None)
+        ax.set_xlabel('Epochs')
+        ax.set_ylabel('Loss')
+        ax.set_title('n_mp_layers = %d' %(n_mp))
+        #ax.tick_params(axis='y', labelcolor='red')  # Set y-axis tick labels to red
+        #ax.set_ylim([1e-4, 1e0])
+        
         plt.show(block=False)
 
     # ~~~~ Save predicted flowfield into .f file 
@@ -1049,7 +1433,7 @@ if __name__ == "__main__":
 
     # ~~~~ Save predicted flowfield into .f file 
     # COARSE-TO-FINE GNN 
-    if 1 == 1:
+    if 1 == 0:
         local = False
         use_residual = True
         n_element_neighbors = 0 
