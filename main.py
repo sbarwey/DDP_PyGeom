@@ -1,6 +1,3 @@
-"""
-PyTorch DDP integrated with PyGeom for multi-node training
-"""
 from __future__ import absolute_import, division, print_function, annotations
 import os
 import socket
@@ -30,10 +27,8 @@ Tensor = torch.Tensor
 
 # PyTorch Geometric
 import torch_geometric
-
+import torch_geometric.nn as tgnn
 import models.gnn as gnn
-
-import dataprep.nekrs_graph_setup as ngs
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +40,7 @@ try:
     # LOCAL_RANK = os.environ['OMPI_COMM_WORLD_LOCAL_RANK']
     SIZE = MPI.COMM_WORLD.Get_size()
     RANK = MPI.COMM_WORLD.Get_rank()
+    COMM = MPI.COMM_WORLD
 
     WITH_CUDA = torch.cuda.is_available()
     DEVICE = 'gpu' if WITH_CUDA else 'CPU'
@@ -91,6 +87,12 @@ def init_process_group(
         init_method='env://',
     )
 
+def force_abort():
+    time.sleep(2)
+    if WITH_DDP:
+        COMM.Abort()
+    else:
+        sys.exit("Exiting...")
 
 def cleanup():
     dist.destroy_process_group()
@@ -122,11 +124,13 @@ class Trainer:
 
         # ~~~~ Init datasets
         self.data = self.setup_data()
+        
         # if WITH_CUDA: 
         #     self.data['train']['stats'][0][0] = self.data['train']['stats'][0][0].cuda()
         #     self.data['train']['stats'][0][1] = self.data['train']['stats'][0][1].cuda()
         #     self.data['train']['stats'][1][0] = self.data['train']['stats'][1][0].cuda()
         #     self.data['train']['stats'][1][1] = self.data['train']['stats'][1][1].cuda()
+
 
         # ~~~~ Init model and move to gpu 
         self.model = self.build_model()
@@ -142,6 +146,7 @@ class Trainer:
             self.model_path = cfg.model_dir + 'model.tar'
 
         # ~~~~ Load model parameters if we are restarting from checkpoint
+        dist.barrier()
         self.epoch = 0
         self.epoch_start = 1
         self.training_iter = 0
@@ -165,7 +170,7 @@ class Trainer:
                 self.loss_hist_train = loss_hist_train_new
                 self.loss_hist_test = loss_hist_test_new
                 self.lr_hist = lr_hist_new 
-            
+        dist.barrier()
 
         # ~~~~ Wrap model in DDP
         if WITH_DDP and SIZE > 1:
@@ -194,23 +199,26 @@ class Trainer:
     def build_model(self) -> nn.Module:
          
         sample = self.data['train']['example']
+
         input_node_channels = sample.x.shape[1]
-        input_edge_channels = sample.pos.shape[1] + sample.x.shape[1] + 1 
-        hidden_channels = self.cfg.hidden_channels 
-        output_node_channels = sample.y.shape[1] 
-        n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers 
-        n_messagePassing_layers = self.cfg.n_messagePassing_layers 
-
+        input_edge_channels_coarse = sample.pos_norm_lo.shape[1] + sample.x.shape[1] + 1
+        hidden_channels = self.cfg.hidden_channels
+        input_edge_channels_fine = sample.pos_norm_hi.shape[1] + hidden_channels + 1
+        output_node_channels = sample.y.shape[1]
+        n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
+        n_messagePassing_layers = self.cfg.n_messagePassing_layers
+        use_fine_messagePassing = self.cfg.use_fine_messagePassing
         name = self.cfg.model_name
-        model = gnn.GNN(input_node_channels,
-                           input_edge_channels,
-                           hidden_channels,
-                           output_node_channels,
-                           n_mlp_hidden_layers,
-                           n_messagePassing_layers,
-                           name)
-
-                
+        model = gnn.GNN_Element_Neighbor_Lo_Hi(
+                input_node_channels = input_node_channels,
+                input_edge_channels_coarse = input_edge_channels_coarse,
+                input_edge_channels_fine = input_edge_channels_fine,
+                hidden_channels = hidden_channels,
+                output_node_channels = output_node_channels,
+                n_mlp_hidden_layers = n_mlp_hidden_layers,
+                n_messagePassing_layers = n_messagePassing_layers,
+                use_fine_messagePassing = use_fine_messagePassing,
+                name = name)
         return model
 
     def build_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
@@ -221,7 +229,7 @@ class Trainer:
     def build_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler:
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,
                                 patience=5, threshold=0.0001, threshold_mode='rel',
-                                cooldown=0, min_lr=1e-8, eps=1e-08, verbose=True)
+                                cooldown=0, min_lr=1e-8, eps=1e-08)# verbose=True)
         return scheduler
 
     def setup_torch(self):
@@ -230,24 +238,11 @@ class Trainer:
 
     def setup_data(self):
         kwargs = {}
-        
-        # single snapshot - oneshot  
-        #train_dataset = torch.load(self.cfg.data_dir + "Single_Snapshot_Re_1600_T_10.0_Interp_1to7/train_dataset.pt")
-        #test_dataset = torch.load(self.cfg.data_dir + "Single_Snapshot_Re_1600_T_10.0_Interp_1to7/valid_dataset.pt")
-
-        # multi snapshot - oneshot  
-        train_dataset = torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_1to7/train_dataset.pt")
-        test_dataset = torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_1to7/valid_dataset.pt")
     
-        # # multi snapshot - incr 
-        # train_dataset = [] 
-        # test_dataset = [] 
-        # train_dataset += torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_1to3/train_dataset_p3.pt")
-        # train_dataset += torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_3to5/train_dataset_p5.pt")
-        # train_dataset += torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_5to7/train_dataset_p7.pt")
-        # test_dataset += torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_1to3/valid_dataset_p3.pt")
-        # test_dataset += torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_3to5/valid_dataset_p5.pt")
-        # test_dataset += torch.load(self.cfg.data_dir + "Multi_Snapshot_Re_1600_T_8.0_9.0_10.0_Interp_5to7/valid_dataset_p7.pt")
+        # multi snapshot - oneshot  
+        n_element_neighbors = self.cfg.n_element_neighbors
+        train_dataset = torch.load(self.cfg.data_dir + f"/train_dataset.pt")
+        test_dataset = torch.load(self.cfg.data_dir + f"/valid_dataset.pt")
 
         if RANK == 0:
             log.info('train dataset: %d elements' %(len(train_dataset)))
@@ -260,6 +255,7 @@ class Trainer:
         train_loader = torch_geometric.loader.DataLoader(
             train_dataset,
             batch_size=self.cfg.batch_size,
+            follow_batch=['x', 'y'],
             sampler=train_sampler,
             **kwargs
         )
@@ -271,6 +267,7 @@ class Trainer:
         test_loader = torch_geometric.loader.DataLoader(
             test_dataset, 
             batch_size=self.cfg.test_batch_size,
+            follow_batch=['x', 'y'],
             sampler=test_sampler,
         )
 
@@ -291,36 +288,79 @@ class Trainer:
         self,
         data: DataBatch
     ) -> Tensor:
+        #t_total = time.time()
+        dist.barrier()
         try: 
             _ = data.node_weight
         except AttributeError: 
             data.node_weight = data.x.new_ones(data.x.shape[0], 1)
+
+        # coincident edge index and node degree -- only used when we have element neighbors 
+        edge_index_coin = data.edge_index_coin if self.cfg.n_element_neighbors > 0 else None 
+        degree = data.degree if self.cfg.n_element_neighbors > 0 else None
+
         if WITH_CUDA:
             data.x = data.x.cuda()
-            data.x_mean = data.x_mean.cuda()
-            data.x_std = data.x_std.cuda()
+            data.x_mean_lo = data.x_mean_lo.cuda()
+            data.x_mean_hi = data.x_mean_hi.cuda()
+            data.x_std_lo = data.x_std_lo.cuda()
+            data.x_std_hi = data.x_std_hi.cuda()
             data.node_weight = data.node_weight.cuda()
             data.y = data.y.cuda()
-            data.edge_index = data.edge_index.cuda()
-            data.pos_norm = data.pos_norm.cuda()
-            data.batch = data.batch.cuda()
-                    
+            data.edge_index_lo = data.edge_index_lo.cuda()
+            data.edge_index_hi = data.edge_index_hi.cuda()
+            data.pos_norm_lo = data.pos_norm_lo.cuda()
+            data.pos_norm_hi = data.pos_norm_hi.cuda()
+            data.x_batch = data.x_batch.cuda()
+            data.y_batch = data.y_batch.cuda()
+            data.central_element_mask = data.central_element_mask.cuda()
+            if self.cfg.n_element_neighbors > 0:
+                edge_index_coin = edge_index_coin.cuda()
+                degree = degree.cuda()
+
         self.optimizer.zero_grad()
 
         # 1) Preprocessing: scale input  
         eps = 1e-10
-        x_scaled = (data.x - data.x_mean)/(data.x_std + eps) 
+        x_scaled = (data.x - data.x_mean_lo)/(data.x_std_lo + eps)
           
         # 2) evaluate model 
-        out_gnn = self.model(x_scaled, data.edge_index, data.pos_norm, data.batch)
-
-        # 3) set the target -- target = data.x + GNN(x_scaled)  
-        target = (data.y - data.x)/(data.x_std + eps)
-        #target = data.y - data.x
+        #t_2 = time.time()
+        out_gnn = self.model(
+            x = x_scaled,
+            mask = data.central_element_mask,
+            edge_index_lo = data.edge_index_lo,
+            edge_index_hi = data.edge_index_hi,
+            pos_lo = data.pos_norm_lo,
+            pos_hi = data.pos_norm_hi,
+            batch_lo = data.x_batch,
+            batch_hi = data.y_batch,
+            edge_index_coin = edge_index_coin,
+            degree = degree)
+        #t_2 = time.time() - t_2
+        
+        # 3) set the target
+        if self.cfg.use_residual:
+            mask = data.central_element_mask
+            if data.x_batch is None:
+                data.x_batch = data.edge_index_lo.new_zeros(data.pos_norm_lo.size(0))
+            if data.y_batch is None:
+                data.y_batch = data.edge_index_hi.new_zeros(data.pos_norm_hi.size(0))
+            x_interp = tgnn.unpool.knn_interpolate(
+                    x = data.x[mask,:],
+                    pos_x = data.pos_norm_lo[mask,:],
+                    pos_y = data.pos_norm_hi,
+                    batch_x = data.x_batch[mask],
+                    batch_y = data.y_batch,
+                    k = 8)
+            target = (data.y - x_interp)/(data.x_std_hi + eps)
+        else:
+            target = (data.y - data.x_mean_hi)/(data.x_std_hi + eps)
 
         # 4) evaluate loss 
+        dist.barrier()
         # loss = self.loss_fn(out_gnn, target) # vanilla mse 
-        loss = torch.mean( data.node_weight * (out_gnn - target)**2 ) # weighted mse 
+        loss = torch.mean( data.node_weight * (out_gnn - target)**2 )
 
         if self.scaler is not None and isinstance(self.scaler, GradScaler):
             self.scaler.scale(loss).backward()
@@ -329,6 +369,13 @@ class Trainer:
         else:
             loss.backward()
             self.optimizer.step()
+
+        #t_total = time.time() - t_total
+
+        #if RANK == 0:
+        #    if self.training_iter < 500:
+        #        log.info(f"t_1: {t_1}s \t t_2: {t_2}s \t t_total: {t_total}s")
+        dist.barrier()
 
         return loss
 
@@ -401,30 +448,70 @@ class Trainer:
                     _ = data.node_weight
                 except AttributeError: 
                     data.node_weight = data.x.new_ones(data.x.shape[0], 1)
+
+                # coincident edge index and node degree -- only used when we have element neighbors 
+                edge_index_coin = data.edge_index_coin if self.cfg.n_element_neighbors > 0 else None
+                degree = data.degree if self.cfg.n_element_neighbors > 0 else None
+                
                 if WITH_CUDA:
                     data.x = data.x.cuda()
-                    data.x_mean = data.x_mean.cuda()
-                    data.x_std = data.x_std.cuda()
+                    data.x_mean_lo = data.x_mean_lo.cuda()
+                    data.x_mean_hi = data.x_mean_hi.cuda()
+                    data.x_std_lo = data.x_std_lo.cuda()
+                    data.x_std_hi = data.x_std_hi.cuda()
                     data.node_weight = data.node_weight.cuda()
                     data.y = data.y.cuda()
-                    data.edge_index = data.edge_index.cuda()
-                    data.pos_norm = data.pos_norm.cuda()
-                    data.batch = data.batch.cuda()
-                                                       
+                    data.edge_index_lo = data.edge_index_lo.cuda()
+                    data.edge_index_hi = data.edge_index_hi.cuda()
+                    data.pos_norm_lo = data.pos_norm_lo.cuda()
+                    data.pos_norm_hi = data.pos_norm_hi.cuda()
+                    data.x_batch = data.x_batch.cuda()
+                    data.y_batch = data.y_batch.cuda()
+                    data.central_element_mask = data.central_element_mask.cuda()
+                    if self.cfg.n_element_neighbors > 0:
+                        edge_index_coin = edge_index_coin.cuda()
+                        degree = degree.cuda()
+
                 # 1) Preprocessing: scale input  
                 eps = 1e-10
-                x_scaled = (data.x - data.x_mean)/(data.x_std + eps)
+                x_scaled = (data.x - data.x_mean_lo)/(data.x_std_lo + eps)
                   
                 # 2) evaluate model 
-                out_gnn = self.model(x_scaled, data.edge_index, data.pos_norm, data.batch)
-
-                # 3) set the target 
-                target = (data.y - data.x)/(data.x_std + eps)
-                #target = data.y - data.x
+                #t_2 = time.time()
+                out_gnn = self.model(
+                    x = x_scaled,
+                    mask = data.central_element_mask,
+                    edge_index_lo = data.edge_index_lo,
+                    edge_index_hi = data.edge_index_hi,
+                    pos_lo = data.pos_norm_lo,
+                    pos_hi = data.pos_norm_hi,
+                    batch_lo = data.x_batch,
+                    batch_hi = data.y_batch,
+                    edge_index_coin = edge_index_coin,
+                    degree = degree)
+                #t_2 = time.time() - t_2
+                
+                # 3) set the target -- target = data.x + GNN(x_scaled)  
+                if self.cfg.use_residual:
+                    mask = data.central_element_mask
+                    if data.x_batch is None:
+                        data.x_batch = data.edge_index_lo.new_zeros(data.pos_norm_lo.size(0))
+                    if data.y_batch is None:
+                        data.y_batch = data.edge_index_hi.new_zeros(data.pos_norm_hi.size(0))
+                    x_interp = tgnn.unpool.knn_interpolate(
+                            x = data.x[mask,:],
+                            pos_x = data.pos_norm_lo[mask,:],
+                            pos_y = data.pos_norm_hi,
+                            batch_x = data.x_batch[mask],
+                            batch_y = data.y_batch,
+                            k = 8)
+                    target = (data.y - x_interp)/(data.x_std_hi + eps)
+                else:
+                    target = (data.y - data.x_mean_hi)/(data.x_std_hi + eps)
 
                 # 4) evaluate loss 
                 # loss = self.loss_fn(out_gnn, target) # vanilla mse 
-                loss = torch.mean( data.node_weight * (out_gnn - target)**2 ) # weighted mse 
+                loss = torch.mean( data.node_weight * (out_gnn - target)**2 )
 
                 running_loss += loss.item()
                 count += 1
@@ -562,8 +649,6 @@ def write_full_dataset(cfg: DictConfig):
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main(cfg: DictConfig) -> None:
-    print('Rank %d, local rank %d, which has device %s. Sees %d devices. Seed = %d' %(RANK,int(LOCAL_RANK),DEVICE,torch.cuda.device_count(), cfg.seed))
-
     if RANK == 0:
         print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
         print('INPUTS:')
@@ -572,7 +657,6 @@ def main(cfg: DictConfig) -> None:
 
     train(cfg)
     cleanup()
-
 
 if __name__ == '__main__':
     main()

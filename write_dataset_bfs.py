@@ -92,6 +92,7 @@ def init_process_group(
 def cleanup():
     dist.destroy_process_group()
 
+
 def write_full_dataset(cfg: DictConfig):
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -102,66 +103,56 @@ def write_full_dataset(cfg: DictConfig):
     train_dataset = []
     test_dataset = [] 
 
-    # ~~~~ one-shot setup -- COARSE-TO-FINE. Here, input is coarse field, instead of interpolated c2f field 
-    # GNN is end-to-end .. i.e., it does the interpolation.
-    #case_path = "/Volumes/Novus_SB_14TB/nek/nekrs_cases/examples_v23_gnn/bfs_2"
-    #case_path = "/lus/eagle/projects/datascience/sbarwey/codes/nek/nekrs_cases/examples_v23_gnn/bfs_2_rampup"
-    case_path = "/lus/eagle/projects/datascience/sbarwey/codes/nek/nekrs_cases/examples_v23_gnn/cavity_rampup"
-    Re_list = ['1600'] 
-    # original dataset -- three snaps 
-    #snap_list = ['newbfs0.f00010', 'newbfs0.f00012', 'newbfs0.f00014']
-    #snap_list = ['newcavity0.f00010', 'newcavity0.f00012', 'newcavity0.f00014']
-    # finetuning on cavity: 
-    #snap_list = ['newcavity0.f00012']
+    SRGNN_HOME = "/lus/eagle/projects/datascience/sbarwey/codes/aets_material/sr_gnn"
+    case_path = SRGNN_HOME + "/nekrs_cases/bfs"
+    Re = '1600'
+    snap_list = ['newbfs0.f00010', 'newbfs0.f00011']
+    n_element_neighbors = 6
+    for snap_id in range(len(snap_list)):
+        snap = snap_list[snap_id]
+        input_path = f"{case_path}/Re_{Re}_poly_7_dataset/snapshots_coarse_7to1/{snap}" 
+        target_path = f"{case_path}/Re_{Re}_poly_7_dataset/snapshots_target/{snap}"
 
-    # bigger dataset: 
-    #snap_list = ['newbfs0.f00002', 'newbfs0.f00004', 'newbfs0.f00006', 
-    #             'newbfs0.f00008', 'newbfs0.f00010', 'newbfs0.f00012',
-    #             'newbfs0.f00014', 'newbfs0.f00016', 'newbfs0.f00018']
-    #snap_list = ['newcavity0.f00002', 'newcavity0.f00004', 'newcavity0.f00006', 
-    #             'newcavity0.f00008', 'newcavity0.f00010', 'newcavity0.f00012',
-    #             'newcavity0.f00014', 'newcavity0.f00016', 'newcavity0.f00018']
-    snap_list = ['newcavity0.f00010']
-    n_element_neighbors = 26
-    for Re_id in range(len(Re_list)):
-        for snap_id in range(len(snap_list)):
-            Re = Re_list[Re_id]
-            snap = snap_list[snap_id]
-            input_path = f"{case_path}/Re_{Re}_p_7/one_shot/snapshots_coarse_7to1/{snap}" 
-            target_path = f"{case_path}/Re_{Re}_p_7/one_shot/snapshots_target/{snap}" 
+        # element-local edge index 
+        edge_index_path_lo = f"{case_path}/gnn_outputs_poly_1/edge_index_element_local_rank_0_size_4"
+        edge_index_path_hi = f"{case_path}/gnn_outputs_poly_7/edge_index_element_local_rank_0_size_4"
 
-            # element-local edge index 
-            edge_index_path_lo = f"{case_path}/Re_{Re}_p_7/gnn_outputs_poly_1/edge_index_element_local_rank_0_size_4"
-            edge_index_path_hi = f"{case_path}/Re_{Re}_p_7/gnn_outputs_poly_7/edge_index_element_local_rank_0_size_4"
+        if RANK == 0:
+                log.info('in get_pygeom_dataset...')
 
-            if RANK == 0:
-                    log.info('in get_pygeom_dataset...')
+        train_dataset_temp, test_dataset_temp = ngs.get_pygeom_dataset_lo_hi_pymech(
+                                data_xlo_path = input_path, 
+                                data_xhi_path = target_path,
+                                edge_index_path_lo = edge_index_path_lo,
+                                edge_index_path_hi = edge_index_path_hi,
+                                device_for_loading = device_for_loading,
+                                fraction_valid = fraction_valid,
+                                n_element_neighbors = n_element_neighbors)
 
-            train_dataset_temp, test_dataset_temp = ngs.get_pygeom_dataset_lo_hi_pymech(
-                                 data_xlo_path = input_path, 
-                                 data_xhi_path = target_path,
-                                 edge_index_path_lo = edge_index_path_lo,
-                                 edge_index_path_hi = edge_index_path_hi,
-                                 device_for_loading = device_for_loading,
-                                 fraction_valid = fraction_valid,
-                                 n_element_neighbors = n_element_neighbors)
+        train_dataset += train_dataset_temp
+        test_dataset += test_dataset_temp
 
-            train_dataset += train_dataset_temp
-            test_dataset += test_dataset_temp
+    # Create data_dir if it doesn't exist
+    if "bfs" in case_path:
+        data_dir = SRGNN_HOME + f"/python_codes/DDP_PyGeom_SR/datasets/bfs_nei_{n_element_neighbors}_re_{Re}"
+    elif "cavity" in case_path:
+        data_dir = SRGNN_HOME + f"/python_codes/DDP_PyGeom_SR/datasets/cavity_nei_{n_element_neighbors}_re_{Re}"
+    else:
+        raise ValueError(f"Check the case path: {case_path}")
 
-    print(f"number of training elements: {len(train_dataset)}")
-    print(f"number of validate elements: {len(test_dataset)}")
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
 
     # try torch.save 
     t_save = time.time()
-    torch.save(train_dataset, cfg.data_dir + f"train_dataset.pt")
-    torch.save(test_dataset, cfg.data_dir + f"valid_dataset.pt")
+    torch.save(train_dataset, data_dir + f"/train_dataset.pt")
+    torch.save(test_dataset, data_dir + f"/valid_dataset.pt")
     t_save = time.time() - t_save 
     
     # load the dataset 
     t_load = time.time()
-    train_dataset = torch.load(cfg.data_dir + f"train_dataset.pt")
-    test_dataset = torch.load(cfg.data_dir + f"valid_dataset.pt")
+    train_dataset = torch.load(data_dir + f"/train_dataset.pt")
+    test_dataset = torch.load(data_dir + f"/valid_dataset.pt")
     t_load = time.time() - t_load
 
     if RANK == 0:
@@ -170,16 +161,7 @@ def write_full_dataset(cfg: DictConfig):
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main(cfg: DictConfig) -> None:
-    print('Rank %d, local rank %d, which has device %s. Sees %d devices. Seed = %d' %(RANK,int(LOCAL_RANK),DEVICE,torch.cuda.device_count(), cfg.seed))
-
-    if RANK == 0:
-        print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-        print('INPUTS:')
-        print(OmegaConf.to_yaml(cfg)) 
-        print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-
     write_full_dataset(cfg)
-    #cleanup()
 
 if __name__ == '__main__':
     main()
