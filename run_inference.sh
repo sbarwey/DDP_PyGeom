@@ -7,7 +7,7 @@ echo Running on host `hostname`
 echo Running on nodes `cat $PBS_NODEFILE`
 module restore
 module load frameworks
-source /lus/flare/projects/SCIML-CFD/sbarwey/codes/nek/nekRS-ML-devel/examples/tgv_gnn_traj_offline_checkpoint/_pyg/bin/activate
+source {YOUR_VENV_PATH} 
 module list
 
 export NEKRS_HOME=/home/sbarwey/.local/nekrs
@@ -24,11 +24,11 @@ export CCL_WORKER_AFFINITY="42,43,44,45,46,47,94,95,96,97,98,99"
 # Inference
 MASTER_ADDR=$(hostname -f)
 echo $MASTER_ADDR > master_addr.txt
-case_path=/lus/flare/projects/SCIML-CFD/sbarwey/codes/nek/examples_v24_gnn
+case_path={YOUR_CASE_PATH}
 mpiexec -n 12 -ppn 12 --cpu-bind=${CPU_BIND} python inference.py backend=ccl \
 model_task=inference \
-gnn_outputs_path=[${case_path}/bfs_2_rampup/gnn_outputs/gnn_outputs_poly_7] \
-traj_data_path=[${case_path}/bfs_2_rampup/Re_1600/traj_poly_7/20_snaps/tinit_0.000000_dtfactor_1/] \
+gnn_outputs_path=[${case_path}/{YOUR_GNNOUTPUTS_PATH}] \
+traj_data_path=[${case_path}/{YOUR_TRAJ_DATA_PATH}] \
 load_stats=False \
 size_list=[12] \
 reynolds_number_list=[1600] \
