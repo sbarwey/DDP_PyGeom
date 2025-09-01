@@ -1,42 +1,81 @@
 # @package _global_
-
-#seed: 42
-#seed: 65
-#seed: 82
-#seed: 105
-seed: 122
-epochs: 300
+verbose: False
+timers: False
+postprocess: True
+seed: 12
 backend: nccl
-#lr_init: 0.0001
-lr_init: 0.00001
-# momentum: 0.5
-use_radius : False
-use_noise : True
-num_threads: 0
+num_threads: 1
 logfreq: 10
-ckptfreq: 5
-batch_size: 2
-test_batch_size: 2
+ckptfreq: 500
+batch_size: 1
+val_batch_size: 1
+precision: fp32
 fp16_allreduce: False
 restart: False
+master_addr: none
+master_port: none
+device_skip: 0 # temporary workaround to skip GPU on a node
 
-# GNN timestep factor
-gnn_dt: 10
+# Modeling task
+model_task: "train"
+time_dependency: "time_dependent" # {time_independent, time_dependent}
+consistency: True
+use_residual: True
+max_rollout_steps: 1
+pushforward_trick: True
+gradient_checkpointing: False
+gradient_clipping: True
 
-# Top-K reduction factor 
-topk_rf: 4
+# learning rate schedule 
+phase1_steps: 100 
+phase2_steps: 0
+phase3_steps: 0
+lr_phase12: 0.0001
+lr_phase23: 0.0001
 
-# Loss function parameters 
-rollout_steps: 1
-use_rollout_schedule : False
-mask_regularization : True
+# model arch properties 
+hidden_channels: 128
+n_mlp_hidden_layers: 2
+n_messagePassing_layers: 8
+layer_norm: False
 
-# baseline model path
-baseline_modelpath : ${work_dir}/saved_models/big_data/dt_gnn_1em4/NO_RADIUS_LR_1em5_topk_unet_rollout_1_seed_82_down_topk_2_up_topk_factor_4_hc_128_down_enc_2_2_2_up_enc_2_2_down_dec_2_2_2_up_dec_2_2_param_sharing_0.tar
+# Halo swap mode 
+halo_swap_mode : none
+
+# Correctness validation
+target_loss: 0
+
+# plotting the connecivity (can take some time)
+plot_connectivity : False
+
+# specify path to gnn_outputs here (case directory)
+# this is a list of paths, with each element corresponding to a case
+# size_list is a list containing number of ranks to use for each case 
+gnn_outputs_path: 
+  - ${work_dir}/gnn_outputs_poly_7/
+traj_data_path: 
+  - ${work_dir}/traj_poly_7/
+reynolds_number_list: [1600]
+size_list: [8]
+reynolds_number_inference: 1600 
+
+# Force training data stats to always be computed [true/false]
+load_stats: False
+
+
+# Online training
+online: False
+online_update_freq: 10
+client: 
+    backend: "smartredis"
+    db_nodes: 1
+    adios_engine: 'SST'
+    adios_transport: 'WAN' # WAN, MPI, UCX, RDMA
+
 
 hydra:
   job:
-    chdir: true
+    chdir: false
 
     #defaults:
     #  - override hydra/hydra_logging: colorlog
@@ -53,20 +92,8 @@ data_dir: ${work_dir}/datasets/
 ckpt_dir: ${work_dir}/ckpt/ 
 # path to saved model directory
 model_dir: ${work_dir}/saved_models/ 
+# path to save profile data  
+profile_dir: ${work_dir}/outputs/profiles/new_timers/ 
+# path to save inference results 
+inference_dir: ${work_dir}/outputs/inference/
 
-
-## pytorch geometric data (eagle) 
-#path_to_vtk: ${work_dir}/datasets/unstructured_mnist/mnist_unstruct_16_2d_0_final.vtk
-#path_to_ei: ${work_dir}/datasets/unstructured_mnist/edge_index
-#path_to_ea: ${work_dir}/datasets/unstructured_mnist/edge_attr
-#path_to_pos: ${work_dir}/datasets/unstructured_mnist/pos
-
-## pytorch geometric data (local)
-#path_to_vtk: ${work_dir}/datasets/UNSTRUCTURED_MNIST/mnist_unstruct_16_2d_0_final.vtk
-#path_to_ei: ${work_dir}/datasets/UNSTRUCTURED_MNIST/edge_index
-#path_to_ea: ${work_dir}/datasets/UNSTRUCTURED_MNIST/edge_attr
-#path_to_pos: ${work_dir}/datasets/UNSTRUCTURED_MNIST/pos
-
-path_to_ei: ${data_dir}/BACKWARD_FACING_STEP/full/edge_index
-path_to_ea: ${data_dir}/BACKWARD_FACING_STEP/full/edge_attr
-path_to_pos: ${data_dir}/BACKWARD_FACING_STEP/full/pos

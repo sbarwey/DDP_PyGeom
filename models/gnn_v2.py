@@ -10,7 +10,7 @@ from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import Adj, OptTensor, PairTensor
 from pooling import TopKPooling_Mod, avg_pool_mod, avg_pool_mod_no_x
 import torch.distributed as dist
-import torch.distributed.nn as distnn
+import torch.distributed.nn_mod as distnn
 
 class DistributedGNN(torch.nn.Module):
     def __init__(self,
@@ -76,142 +76,8 @@ class DistributedGNN(torch.nn.Module):
             self,
             x: Tensor,
             edge_index: LongTensor,
-            edge_attr: Tensor,
-            edge_weight: Tensor,
-            halo_info: Tensor,
-            mask_send: list,
-            mask_recv: list,
-            buffer_send: List[Tensor],
-            buffer_recv: List[Tensor],
-            neighboring_procs: Tensor, 
-            SIZE: Tensor,
-            batch: Optional[LongTensor] = None) -> Tensor:
-
-        if batch is None:
-            batch = edge_index.new_zeros(x.size(0))
-
-        # ~~~~ Node encoder
-        x = self.node_encoder(x)
-
-        # ~~~~ Edge encoder
-        e = self.edge_encoder(edge_attr)
-        
-        # ~~~~ Processor
-        for i in range(self.n_messagePassing_layers):
-            x,_ = self.processor[i](x,
-                                    e,
-                                    edge_index,
-                                    edge_weight,
-                                    halo_info,
-                                    mask_send,
-                                    mask_recv,
-                                    buffer_send,
-                                    buffer_recv,
-                                    neighboring_procs,
-                                    SIZE,
-                                    batch)
-
-        # ~~~~ Node decoder
-        x = self.node_decoder(x)
-
-        return x
-
-    def reset_parameters(self):
-        self.node_encoder.reset_parameters()
-        self.edge_encoder.reset_parameters()
-        self.node_decoder.reset_parameters()
-        for module in self.processor:
-            module.reset_parameters()
-        return
-
-    def input_dict(self) -> dict:
-        a = {'input_node_channels': self.input_node_channels,
-             'input_edge_channels': self.input_edge_channels,
-             'hidden_channels': self.hidden_channels,
-             'output_node_channels': self.output_node_channels,
-             'n_mlp_hidden_layers': self.n_mlp_hidden_layers,
-             'n_messagePassing_layers': self.n_messagePassing_layers,
-             'halo_swap_mode': self.halo_swap_mode,
-             'name': self.name}
-        return a
-
-    def get_save_header(self) -> str:
-        a = self.input_dict()
-        header = a['name']
-
-        for key in a.keys():
-            if key != 'name':
-                header += '_' + str(a[key])
-
-        #for item in self.input_dict():
-        return header
-
-class DistributedGNN_EdgeSkip(torch.nn.Module):
-    def __init__(self,
-                 input_node_channels: int,
-                 input_edge_channels: int,
-                 hidden_channels: int,
-                 output_node_channels: int,
-                 n_mlp_hidden_layers: int,
-                 n_messagePassing_layers: int,
-                 halo_swap_mode: Optional[str] = 'all_to_all',
-                 name: Optional[str] = 'gnn_edgeskip'):
-        super().__init__()
-
-        self.input_node_channels = input_node_channels
-        self.input_edge_channels = input_edge_channels
-        self.hidden_channels = hidden_channels
-        self.output_node_channels = output_node_channels
-        self.n_mlp_hidden_layers = n_mlp_hidden_layers
-        self.n_messagePassing_layers = n_messagePassing_layers
-        self.halo_swap_mode = halo_swap_mode
-        self.name = name
-
-        # ~~~~ node encoder MLP
-        self.node_encoder = MLP(
-                input_channels = self.input_node_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels)
-                )
-
-        # ~~~~ edge encoder MLP
-        self.edge_encoder = MLP(
-                input_channels = self.input_edge_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels)
-                )
-
-        # ~~~~ node decoder MLP
-        self.node_decoder = MLP(
-                input_channels = self.hidden_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.output_node_channels,
-                activation_layer = torch.nn.ELU(),
-                )
-
-        # ~~~~ Processor
-        self.processor = torch.nn.ModuleList()
-        for i in range(self.n_messagePassing_layers):
-            self.processor.append(
-                          DistributedMessagePassingLayer(
-                                     channels = self.hidden_channels,
-                                     n_mlp_hidden_layers = self.n_mlp_hidden_layers,
-                                     halo_swap_mode = self.halo_swap_mode, 
-                                     )
-                                  )
-
-        self.reset_parameters()
-
-    def forward(
-            self,
-            x: Tensor,
-            edge_index: LongTensor,
-            edge_weight: Tensor,
             pos: Tensor,
+            edge_weight: Tensor,
             halo_info: Tensor,
             mask_send: list,
             mask_recv: list,
@@ -242,7 +108,7 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
         
         # ~~~~ Processor
         for i in range(self.n_messagePassing_layers):
-            x,e = self.processor[i](x,
+            x = self.processor[i](x,
                                     e,
                                     edge_index,
                                     edge_weight,
@@ -289,6 +155,7 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
 
         #for item in self.input_dict():
         return header
+
 
 class MLP(torch.nn.Module):
     def __init__(self,
@@ -415,7 +282,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                 torch.cat((x, edge_agg), dim=1)
                 )
 
-        return x,e  
+        return x
 
     def halo_swap(self,
                   input_tensor,

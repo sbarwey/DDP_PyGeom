@@ -13,7 +13,6 @@ saved_models/
 
 *.swp
 .DS_Store
-figures_for_paper.py
 
 
 # Byte-compiled / optimized / DLL files

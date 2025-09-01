@@ -5,10 +5,8 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.nn as tgnn
-from torch_scatter import scatter_mean
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import Adj, OptTensor, PairTensor
-from pooling import TopKPooling_Mod, avg_pool_mod, avg_pool_mod_no_x
 import torch.distributed as dist
 import torch.distributed.nn as distnn
 
@@ -21,6 +19,7 @@ class DistributedGNN(torch.nn.Module):
                  n_mlp_hidden_layers: int,
                  n_messagePassing_layers: int,
                  halo_swap_mode: Optional[str] = 'all_to_all',
+                 layer_norm: Optional[bool] = False,
                  name: Optional[str] = 'gnn'):
         super().__init__()
 
@@ -31,6 +30,7 @@ class DistributedGNN(torch.nn.Module):
         self.n_mlp_hidden_layers = n_mlp_hidden_layers
         self.n_messagePassing_layers = n_messagePassing_layers
         self.halo_swap_mode = halo_swap_mode
+        self.layer_norm = layer_norm
         self.name = name
 
         # ~~~~ node encoder MLP
@@ -38,8 +38,8 @@ class DistributedGNN(torch.nn.Module):
                 input_channels = self.input_node_channels,
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels)
+                activation_layer = torch.nn.GELU(),
+                norm_layer = torch.nn.LayerNorm(self.hidden_channels) if self.layer_norm else None
                 )
 
         # ~~~~ edge encoder MLP
@@ -47,8 +47,8 @@ class DistributedGNN(torch.nn.Module):
                 input_channels = self.input_edge_channels,
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels)
+                activation_layer = torch.nn.GELU(),
+                norm_layer = torch.nn.LayerNorm(self.hidden_channels) if self.layer_norm else None
                 )
 
         # ~~~~ node decoder MLP
@@ -56,7 +56,7 @@ class DistributedGNN(torch.nn.Module):
                 input_channels = self.hidden_channels,
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.output_node_channels,
-                activation_layer = torch.nn.ELU(),
+                activation_layer = torch.nn.GELU(),
                 )
 
         # ~~~~ Processor
@@ -67,6 +67,7 @@ class DistributedGNN(torch.nn.Module):
                                      channels = self.hidden_channels,
                                      n_mlp_hidden_layers = self.n_mlp_hidden_layers,
                                      halo_swap_mode = self.halo_swap_mode, 
+                                     layer_norm = self.layer_norm
                                      )
                                   )
 
@@ -172,7 +173,7 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
                 input_channels = self.input_node_channels,
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
+                activation_layer = torch.nn.GELU(),
                 norm_layer = torch.nn.LayerNorm(self.hidden_channels)
                 )
 
@@ -181,7 +182,7 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
                 input_channels = self.input_edge_channels,
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
+                activation_layer = torch.nn.GELU(),
                 norm_layer = torch.nn.LayerNorm(self.hidden_channels)
                 )
 
@@ -190,7 +191,7 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
                 input_channels = self.hidden_channels,
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.output_node_channels,
-                activation_layer = torch.nn.ELU(),
+                activation_layer = torch.nn.GELU(),
                 )
 
         # ~~~~ Processor
@@ -336,21 +337,23 @@ class DistributedMessagePassingLayer(torch.nn.Module):
     def __init__(self, 
                  channels: int, 
                  n_mlp_hidden_layers: int,
-                 halo_swap_mode: str):
+                 halo_swap_mode: str,
+                 layer_norm: Optional[bool] = False):
         super().__init__()
 
         self.edge_aggregator = EdgeAggregation(aggr='add')
         self.channels = channels
         self.n_mlp_hidden_layers = n_mlp_hidden_layers 
         self.halo_swap_mode = halo_swap_mode
+        self.layer_norm = layer_norm
 
         # Edge update MLP 
         self.edge_updater = MLP(
                 input_channels = self.channels*3,
                 hidden_channels = [self.channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.channels)
+                activation_layer = torch.nn.GELU(),
+                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None
                 )
 
         # Node update MLP
@@ -358,8 +361,8 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                 input_channels = self.channels*2,
                 hidden_channels = [self.channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.channels)
+                activation_layer = torch.nn.GELU(),
+                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None
                 )
 
         self.reset_parameters()
@@ -389,13 +392,13 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         e += self.edge_updater(
                 torch.cat((x_send, x_recv, e), dim=1)
                 )
-        
+
         # ~~~~ Edge aggregation
         edge_weight = edge_weight.unsqueeze(1)
         e = e * edge_weight
         edge_agg = self.edge_aggregator(x, edge_index, e)
 
-        if SIZE > 1:
+        if SIZE > 1 and self.halo_swap_mode != 'none':
             # ~~~~ Halo exchange: swap the edge aggregates. This populates the halo nodes  
             edge_agg = self.halo_swap(edge_agg, 
                                       mask_send,
@@ -405,7 +408,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                                       neighboring_procs, 
                                       SIZE)
 
-            # ~~~~ Local scatter using halo nodes (use halo_info) 
+            # ~~~~ Local scatter using halo nodes (use halo_info)
             idx_recv = halo_info[:,0]
             idx_send = halo_info[:,1]
             edge_agg.index_add_(0, idx_recv, edge_agg.index_select(0, idx_send))
@@ -427,10 +430,11 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                   SIZE):
         """
         Performs halo swap using send/receive buffers
-        uses all_to_all implementation
         """
         if SIZE > 1:
-            if self.halo_swap_mode == 'all_to_all':
+            if self.halo_swap_mode == 'all_to_all' \
+               or self.halo_swap_mode == 'all_to_all_opt' \
+               or self.halo_swap_mode == 'all_to_all_opt_intel':
                 # Fill send buffer
                 for i in neighboring_procs:
                     n_send = len(mask_send[i])
@@ -477,7 +481,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             elif self.halo_swap_mode == 'none':
                 pass
             else:
-                raise ValueError("halo_swap_mode %s not valid. Valid options: all_to_all, sendrecv" %(self.halo_swap_mode))
+                raise ValueError("halo_swap_mode %s not valid. Valid options: all_to_all, all_to_all_opt, all_to_all_opt_intel, send_recv, none" %(self.halo_swap_mode))
         return input_tensor
 
 
@@ -564,15 +568,3 @@ class EdgeAggregation(MessagePassing):
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}'
-
-
-
-
-
-
-
-
-
-
-
-
