@@ -58,6 +58,7 @@ traj_data_path:
 reynolds_number_list: [1600]
 size_list: [8]
 reynolds_number_inference: 1600 
+inference_mode: "single_step"
 
 # Force training data stats to always be computed [true/false]
 load_stats: False

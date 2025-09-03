@@ -223,9 +223,6 @@ def inference(cfg: DictConfig) -> None:
             if RANK == 0: log.info("Gathering pos...")
             pos_gathered = gather_wrapper(pos.cpu().numpy())
 
-            log.info(f"finished inference step function called - asdf")
-            utils.force_abort()
-
             # Write the data:  
             if RANK == 0:
                 log.info("Writing...")
